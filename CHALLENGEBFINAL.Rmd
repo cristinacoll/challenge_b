@@ -1,0 +1,256 @@
+---
+title: "Assignment 2"
+author: "Cristina Coll and Sander Van Veen"
+date: "November 2017"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+``` 
+
+
+load.libraries <- c('tidyverse', 'knitr')
+install.lib <- load.libraries[!load.libraries %in% installed.packages()]
+for(libs in install.lib) install.packages(libs, dependencies = TRUE, repos = "https://cloud.r-project.org")
+sapply(load.libraries, require, character = TRUE)
+library(dplyr)
+library(tidyverse)
+library(knitr)
+library(readr)
+train_data <- read_csv("C:/Users/Usuari/Desktop/RCRIS/challenge a/train.csv", col_types = cols(Id = col_skip()))
+View(train_data)
+
+library(readr)
+test_data <- read_csv("C:/Users/Usuari/Desktop/RCRIS/challenge a/test.csv", col_types = cols(Id = col_skip()))
+View(test_data)
+
+
+remove.variables <- train_data %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 100) %>% select(feature) %>% unlist
+
+train_data <- train_data %>% select(- one_of(remove.variables))
+
+
+train_data %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 0)
+
+train_data <- train_data %>% filter(is.na(GarageType) == FALSE, is.na(MasVnrType) == FALSE, is.na(BsmtFinType2) == FALSE, is.na(BsmtExposure) == FALSE, is.na(Electrical) == FALSE)
+
+
+train_data %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 0)
+
+install.packages("magrittr")
+library(magrittr)
+
+cat_var <- train_data %>% summarise_all(.funs = funs(is.character(.))) %>% gather(key = "feature", value = "is.chr") %>% filter(is.chr == TRUE) %>% select(feature) %>% unlist
+
+
+##Exercise 1
+**Step1. Choose a ML technique. Give a brief intuition of how it works.** 
+
+The machine learning technique that We will implement is Neural Networks. 
+
+Neural Networks is a machine learning framework that attempts to mimic the learning pattern of natural biological neural networks. Biological neural networks have interconnected neurons with dendrites that receive inputs, then based on these inputs they produce an output signal through an axon to another neuron. We will try to mimic this process through the use of Artificial Neural Networks (ANN), which we will just refer to as neural networks from now on. The process of creating a neural network begins with the most basic form, a single perceptron. A perceptron has one or more inputs, a bias, an activation function, and a single output. The perceptron receives inputs, multiplies them by some weight, and then passes them into an activation function to produce an output. There are many possible activation functions to choose from, such as the logistic function, a trigonometric function, a step function etc. We also make sure to add a bias to the perceptron, this avoids issues where all inputs could be equal to zero (meaning no multiplicative weight would have an effect). Once we have the output we can compare it to a known label and adjust the weights accordingly (the weights usually start off with random initialization values). We keep repeating this process until we have reached a maximum number of allowed iterations, or an acceptable error rate.To create a neural network, we add layers of perceptrons together, creating a multi-layer perceptron model of a neural network. You'll have an input layer which directly takes in your feature inputs and an output layer which will create the resulting outputs. Any layers in between are known as hidden layers because they don't directly "see" the feature inputs or outputs.
+
+**Step2. Train the chosen technique on the training data. Don't use the variable Id as a feature.**
+
+
+
+library(nnet)
+machine_nnet <- nnet(SalePrice~., train_data, size = 3, skip = TRUE, linout = TRUE) 
+
+
+**Step3. Make preditions on the test data, and compare them to the predictions of a linear regression of your choice.**
+
+
+lm_model_2 <- lm(SalePrice ~ MSZoning + LotArea + Neighborhood  + YearBuilt + OverallQual, data = train_data)
+summary(lm_model_2)
+
+prediction <- data.frame(Id = test$Id, SalePrice_predict = predict(lm_model_2, test, type="response"))
+
+
+
+
+##Exercise 2
+```{r setup2, include=FALSE}
+rm(list = ls())
+
+# Simulating an overfit
+library(tidyverse)
+library(np)
+library(caret)
+# True model : y = x^3 + epsilon
+set.seed(1)
+Nsim <- 150
+b <- c(0,1)
+x0 <- rep(1, Nsim)
+x1 <- rnorm(n = Nsim)
+
+X <- cbind(x0, x1^3)
+y.true <- X %*% b
+
+eps <- rnorm(n = Nsim)
+y <- X %*% b + eps
+
+df <- tbl_df(y[,1]) %>% rename(y = value) %>% bind_cols(tbl_df(x1)) %>% rename(x = value) %>% bind_cols(tbl_df(y.true[,1])) %>% rename(y.true = value)
+
+
+# The true relationship between y and x is 
+# i.e. conditional on knowing x, the best prediction you can give of y, is on this line. However, this line is not known, and needs to be estimated/trained/etc...
+
+
+# Simulate Nsim = 100 points of (y,x)
+ggplot(df) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true))
+
+# Split sample into training and testing, 80/20
+training.index <- createDataPartition(y = y, times = 1, p = 0.8)
+df <- df %>% mutate(which.data = ifelse(1:n() %in% training.index$Resample1, "training", "test"))
+
+training <- df %>% filter(which.data == "training")
+test <- df %>% filter(which.data == "test")
+
+# Train linear model y ~ x on training
+lm.fit <- lm(y ~ x, data = training)
+summary(lm.fit)
+
+df <- df %>% mutate(y.lm = predict(object = lm.fit, newdata = df))
+training <- training %>% mutate(y.lm = predict(object = lm.fit))
+
+# Train local linear model y ~ x on training, using default low flexibility (high bandwidth)
+```
+
+**Step1. Estimate a low-flexibility local linear model on the training data. For that, you can use function npreg the package np. Choose ll for the method (local linear), and a bandwidth of 0.5; Call this model ll.fit.lowflex.**
+
+```{r lowflex, include=TRUE}
+ll.fit.lowflex <- npreg(y ~ x, data = training, method = "ll", bws = 0.5)
+summary(ll.fit.lowflex)
+```
+
+**Step2. Estimate a high-flexibility local linear model on the training data. For that, you can use function npreg the package np. Choose ll for the method (local linear), and a bandwidth of 0.01; Call this model ll.fit.highflex.**
+
+```{r highflex, include=TRUE}
+
+ll.fit.highflex <- npreg(y ~ x, data = training, method = "ll", bws = 0.01)
+summary(ll.fit.highflex)
+```
+
+**Step3. Plot the scatterplot of x-y, along with the predictions of ll.fit.lowflex and ll.fit.highflex, on only the training data.**
+```{r scatterplot, include=TRUE}
+
+
+df <- df %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = df), y.ll.highflex = predict(object = ll.fit.highflex, newdata = df))
+
+training <- training %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = training), y.ll.highflex = predict(object = ll.fit.highflex, newdata = training))
+
+ggplot(training) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true)) + 
+  geom_line(mapping = aes(x = x, y = y.ll.lowflex), color = "red") + 
+  geom_line(mapping = aes(x = x, y = y.ll.highflex), color = "blue")
+```
+  
+
+**Step4. Between the two models, which predictions are more variable? Which predictions have the least bias?**
+
+As we can see in the plot the highflex predictions are more variable, but also have the least bias. 
+
+**Step5. Plot the scatterplot of x-y, along with the predictions of ll.fit.lowflex and ll.fit.highflex now using the test data. Which predictions are more variable? What happened to the bias of the least biased model?**
+```{r plottest, include=TRUE}
+df <- df %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = df), y.ll.highflex = predict(object = ll.fit.highflex, newdata = df))
+
+test <- test %>% mutate(y.ll.lowflex = predict(object = ll.fit.lowflex, newdata = test), y.ll.highflex = predict(object = ll.fit.highflex, newdata = test))
+
+ggplot(test) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true)) + 
+  geom_line(mapping = aes(x = x, y = y.ll.lowflex), color = "red") + 
+  geom_line(mapping = aes(x = x, y = y.ll.highflex), color = "blue")
+```
+  
+The highflex predictions are more variable, the bias of the least biased model increased significantly.
+
+**Step6. Create a vector of bandwidth going from 0.01 to 0.5 with a step of 0.001.**
+```{r bandwidth, include=TRUE}
+# Here we created a vector of bandwidth from 0.01 to 0.5.
+
+bw <- seq(0.01, 0.5, by = 0.001)
+```
+
+**Step7. Estimate a local linear model y~x on the training data with each bandwidth.**
+
+Here we estimate a local linear model on the training data with each bandwidth.
+```{r estimatellmodel, include=TRUE}
+
+llbw.fit <- lapply(X = bw, FUN = function(bw) {npreg(y ~ x, data = training, method = "ll", bws = bw)})
+``` 
+
+**Step 8. Compute for each bandwidth the MSE on the training data.**
+```{r computetraining, include=TRUE}
+
+# Here we computed for each bandwidth the MSE on the training data.
+
+mse.training <- function(fit.model){
+  predictions <- predict(object = fit.model, newdata = training)
+  training %>% mutate(squared.error = (y - predictions)^2) %>% summarize(mse = mean(squared.error))
+}
+mse.train.results <- unlist(lapply(X = llbw.fit, FUN = mse.training))
+```
+
+**Step 9. Compute for each bandwidth the MSE on the test data.**
+```{r computetest , include=TRUE}
+
+# Here we computed for each bandwidth the MSE on the test data
+mse.test <- function(fit.model){
+  predictions <- predict(object = fit.model, newdata = test)
+  test %>% mutate(squared.error = (y - predictions)^2) %>% summarize(mse = mean(squared.error))
+}
+mse.test.results <- unlist(lapply(X = llbw.fit, FUN = mse.test))
+```
+
+
+**Step 10. Draw on the same plot how the MSE on training data, and test data, change when the bandwidth increases. Conclude.**
+```{r plotagain, include=TRUE}
+# Here we drew a plot
+
+mse.df <- tbl_df(data.frame(bandwidth = bw, mse.train = mse.train.results, mse.test = mse.test.results))
+
+ggplot(mse.df) + 
+  geom_line(mapping = aes(x = bandwidth, y = mse.train), color = "blue") +
+  geom_line(mapping = aes(x = bandwidth, y = mse.test), color = "orange")
+```
+
+## Exercise 3
+
+**Step1. Import the CNIL dataset from the Open Data Portal.**
+```{r import, include=TRUE, message=FALSE}
+library(readxl)
+CNIL_DataSet <- read_excel("C:/Users/Usuari/Downloads/OpenCNIL_Organismes_avec_CIL_VD_20171204.xlsx")
+View(CNIL_DataSet)
+```
+
+**Step2. Show a table with the number of organizations that has nominated a CNIL per department.** 
+
+Fist of all, it's important to know that a SRIEN number is the French business identification number. Is a 9 digit number and it's a proof that you are a fully registered French business, listed on the national business directory. Your SIREN number will be issued by INSEE (national institute of statistics), when you register your business.
+```{r table, include=TRUE}
+CNIL_DataSet$`Code Postal` <- substr(CNIL_DataSet$`Code Postal`, 0, 2)
+View(CNIL_DataSet)
+Nice_Table <- table(CNIL_DataSet$`Code Postal`)
+View(Nice_Table)
+```
+
+
+
+**Step3. Merge the information from the SIREN dataset in to the CNIL data. Explain the method you use. Provide a visualization that distribution of the sectors of activities of companies that nominated a CIL. Comment. **
+library(ff)
+siren <- read.csv(file="C:\Users\Sander van Veen\Downloads\sirene_201710_L_M")
+for(i in 0:1000)
+{
+siren <- read.csv(file="C:/Users/Sander van Veen/Desktop/rprog/sirc-17804_9075_14209_201710_L_M_20171101_030132835",nrows=i*2000:i*2000+2000)
+total <- merge(CNIL_DataSet, siren, by="SIREN")
+
+} 
+
+ 
+**Step 4. Plot the histogram of the size of the companies that nominated a CIL. Comment.**
+
